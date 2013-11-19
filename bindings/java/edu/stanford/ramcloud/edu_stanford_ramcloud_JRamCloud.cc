@@ -14,7 +14,10 @@
  */
 
 #include <RamCloud.h>
+#include <TableEnumerator.h>
+#include <Object.h>
 #include "edu_stanford_ramcloud_JRamCloud.h"
+#include "edu_stanford_ramcloud_JRamCloud_TableEnumerator.h"
 
 using namespace RAMCloud;
 
@@ -98,6 +101,14 @@ getRamCloud(JNIEnv* env, jobject jRamCloud)
     jclass cls = env->GetObjectClass(jRamCloud);
     jfieldID fieldId = env->GetFieldID(cls, "ramcloudObjectPointer", "J");
     return reinterpret_cast<RamCloud*>(env->GetLongField(jRamCloud, fieldId));
+}
+
+static TableEnumerator*
+getTableEnumerator(JNIEnv* env, jobject jTableEnumerator)
+{
+    jclass cls = env->GetObjectClass(jTableEnumerator);
+    jfieldID fieldId = env->GetFieldID(cls, "tableEnumeratorObjectPointer", "J");
+    return reinterpret_cast<TableEnumerator*>(env->GetLongField(jTableEnumerator, fieldId));    
 }
 
 static void
@@ -417,4 +428,78 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud_write__J_3B_3BLJRamCloud_RejectRule
                         &version);
     } EXCEPTION_CATCHER(-1);
     return static_cast<jlong>(version);
+}
+
+/*
+ * Class:     edu_stanford_ramcloud_JRamCloud_TableEnumerator
+ * Method:    init
+ * Signature: (J)V
+ */
+JNIEXPORT jlong JNICALL Java_edu_stanford_ramcloud_JRamCloud_00024TableEnumerator_init(JNIEnv *env, 
+                                                                                      jobject jTableEnumerator, 
+                                                                                      jlong jTableId)
+{
+    jclass cls = env->GetObjectClass(jTableEnumerator);
+    jfieldID fieldId = env->GetFieldID(cls, "ramCloudObjectPointer", "J");
+    RamCloud* ramcloud = reinterpret_cast<RamCloud*>(env->GetLongField(jTableEnumerator, fieldId));
+  
+    return reinterpret_cast<jlong>(new TableEnumerator(*ramcloud, jTableId));
+}
+
+/*
+ * Class:     edu_stanford_ramcloud_JRamCloud_TableEnumerator
+ * Method:    hasNext
+ * Signature: ()Z
+ */
+JNIEXPORT jboolean JNICALL Java_edu_stanford_ramcloud_JRamCloud_00024TableEnumerator_hasNext( JNIEnv *env, 
+                                                                                              jobject jTableEnumerator)
+{
+    TableEnumerator* tableEnum = getTableEnumerator(env, jTableEnumerator);
+    return static_cast<jboolean>(tableEnum->hasNext());
+}
+
+/*
+ * Class:     edu_stanford_ramcloud_JRamCloud_TableEnumerator
+ * Method:    next
+ * Signature: ()Ledu/stanford/ramcloud/JRamCloud/Object;
+ */
+JNIEXPORT jobject JNICALL Java_edu_stanford_ramcloud_JRamCloud_00024TableEnumerator_next( JNIEnv *env, 
+                                                                                          jobject jTableEnumerator)
+{
+    TableEnumerator* tableEnum = getTableEnumerator(env, jTableEnumerator);
+
+    if(tableEnum->hasNext()) 
+    {
+        uint32_t size = 0;
+        const void* buffer = 0;
+        uint64_t version = 0;
+
+        tableEnum->next(&size, &buffer);
+        Object object(buffer, size);
+
+        jbyteArray jKey = env->NewByteArray(object.getKeyLength());
+        jbyteArray jValue = env->NewByteArray(object.getDataLength());
+        
+        JByteArrayGetter key(env, jKey);
+        JByteArrayGetter value(env, jValue);
+
+        memcpy(key.pointer, object.getKey(), object.getKeyLength());
+        memcpy(value.pointer, object.getData(), object.getDataLength());
+
+        version = object.getVersion();
+        
+        jclass cls = env->FindClass(PACKAGE_PATH "JRamCloud$Object");
+        check_null(cls, "FindClass failed");
+        jmethodID methodId = env->GetMethodID(cls,
+                                          "<init>",
+                                          "(L" PACKAGE_PATH "JRamCloud;[B[BJ)V");
+        check_null(methodId, "GetMethodID failed");
+        return env->NewObject(cls,
+                              methodId,
+                              jTableEnumerator,
+                              jKey,
+                              jValue,
+                              static_cast<jlong>(version));        
+    } else 
+        return NULL;
 }

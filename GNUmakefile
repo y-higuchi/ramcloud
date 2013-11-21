@@ -23,8 +23,10 @@ OBJDIR	:= obj$(OBJSUFFIX)
 
 TOP	:= $(shell echo $${PWD-`pwd`})
 GTEST_DIR ?= $(TOP)/gtest
-ZOOKEEPER_LIB := /usr/local/lib/libzookeeper_mt.a
-ZOOKEEPER_DIR := /usr/local/zookeeper-3.4.5
+#ZOOKEEPER_LIB := /usr/local/lib/libzookeeper_mt.a
+#ZOOKEEPER_DIR := /usr/local/zookeeper-3.4.5
+ZOOKEEPER_LIB := /usr/lib/x86_64-linux-gnu/libzookeeper_mt.a
+ZOOKEEPER_DIR := ~/zookeeper-3.4.5
 
 ifeq ($(DEBUG),yes)
 BASECFLAGS := -g
@@ -46,7 +48,7 @@ ifeq ($(VALGRIND),yes)
 COMFLAGS += -DVALGRIND
 endif
 
-COMWARNS := -Wall -Wformat=2 -Wextra \
+COMWARNS := -Wall -Wformat=2 -Wextra -Wno-array-bounds -Wno-uninitialized\
             -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute
 CWARNS   := $(COMWARNS) -Wmissing-prototypes -Wmissing-declarations -Wshadow \
 		-Wbad-function-cast

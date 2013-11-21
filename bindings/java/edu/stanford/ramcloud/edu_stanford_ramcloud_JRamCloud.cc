@@ -108,7 +108,7 @@ getTableEnumerator(JNIEnv* env, jobject jTableEnumerator)
 {
     jclass cls = env->GetObjectClass(jTableEnumerator);
     jfieldID fieldId = env->GetFieldID(cls, "tableEnumeratorObjectPointer", "J");
-    return reinterpret_cast<TableEnumerator*>(env->GetLongField(jTableEnumerator, fieldId));    
+    return reinterpret_cast<TableEnumerator*>(env->GetLongField(jTableEnumerator, fieldId));
 }
 
 static void
@@ -288,7 +288,7 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud_read__J_3B(JNIEnv *env,
 {
     RamCloud* ramcloud = getRamCloud(env, jRamCloud);
     JByteArrayGetter key(env, jKey);
-    
+
     Buffer buffer;
     uint64_t version;
     try {
@@ -333,6 +333,74 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud_read__J_3BLJRamCloud_RejectRules_2(
     // XXX-- implement me by generalising the other read() method.
     return NULL;
 }
+
+/*
+ * Class:     edu_stanford_ramcloud_JRamCloud
+ * Method:    multiRead
+ * Signature: ([Ledu/stanford/ramcloud/JRamCloud$multiReadObject;I)[Ledu/stanford/ramcloud/JRamCloud$Object;
+ */
+JNIEXPORT jobjectArray
+JNICALL Java_edu_stanford_ramcloud_JRamCloud_multiRead(JNIEnv *env,
+                                                        jobject jRamCloud,
+                                                        jobjectArray jmultiReadArray){
+
+    RamCloud* ramcloud = getRamCloud(env, jRamCloud);
+    jint requestNum = env->GetArrayLength(jmultiReadArray);
+    MultiReadObject objects[requestNum];
+    Tub<Buffer> values[requestNum];
+    jbyteArray jKey[requestNum];
+
+    for (int i = 0 ; i < requestNum ; i++){
+        jobject obj = env->GetObjectArrayElement(jmultiReadArray, i);
+        check_null(obj, "GetObjectArrayElement failed");
+        jclass cls = env->GetObjectClass(obj);
+
+        jfieldID fid = env->GetFieldID(cls, "tableId", "J");
+        jlong jTableId = env->GetLongField(obj, fid);
+
+        fid = env->GetFieldID(cls, "key", "[B");
+        jKey[i] = (jbyteArray)env->GetObjectField (obj, fid);
+
+        jbyte* data = env->GetByteArrayElements(jKey[i], NULL);
+        check_null(data, "GetByteArrayElements failed");
+
+        objects[i].tableId = jTableId;
+        objects[i].key = data;
+        objects[i].keyLength = env->GetArrayLength(jKey[i]);
+        objects[i].value = &values[i];
+    }
+
+    MultiReadObject* requests[requestNum];
+    for (int i = 0 ; i < requestNum ; i++) {
+        requests[i] = &objects[i];
+    }
+
+    try {
+        ramcloud->multiRead(requests, requestNum);
+    } EXCEPTION_CATCHER(NULL);
+
+    jclass cls = env->FindClass(PACKAGE_PATH "JRamCloud$Object");
+    check_null(cls, "FindClass failed");
+    jmethodID methodId = env->GetMethodID(cls,
+                                        "<init>",
+                                        "(L" PACKAGE_PATH "JRamCloud;[B[BJ)V");
+
+    jobjectArray outJNIArray = env->NewObjectArray(requestNum, cls , NULL);
+    check_null(outJNIArray, "NewObjectArray failed");
+
+    for (int i = 0 ; i < requestNum ; i++) {
+        jbyteArray jValue = env->NewByteArray(values[i].get()->getTotalLength());
+        check_null(jValue, "NewByteArray failed");
+        JByteArrayGetter value(env, jValue);
+        values[i].get()->copy(0, values[i].get()->getTotalLength(), value.pointer);
+        jobject obj = env->NewObject(cls, methodId, jRamCloud, jKey[i], jValue);
+        check_null(obj, "NewObject failed");
+        env->SetObjectArrayElement(outJNIArray, i, obj);
+        env->ReleaseByteArrayElements(jKey[i], (jbyte *)objects[i].key, 0);
+    }
+    return outJNIArray;
+}
+
 
 /*
  * Class:     edu_stanford_ramcloud_JRamCloud
@@ -442,7 +510,7 @@ JNIEXPORT jlong JNICALL Java_edu_stanford_ramcloud_JRamCloud_00024TableEnumerato
     jclass cls = env->GetObjectClass(jTableEnumerator);
     jfieldID fieldId = env->GetFieldID(cls, "ramCloudObjectPointer", "J");
     RamCloud* ramcloud = reinterpret_cast<RamCloud*>(env->GetLongField(jTableEnumerator, fieldId));
-  
+
     return reinterpret_cast<jlong>(new TableEnumerator(*ramcloud, jTableId));
 }
 
@@ -468,7 +536,7 @@ JNIEXPORT jobject JNICALL Java_edu_stanford_ramcloud_JRamCloud_00024TableEnumera
 {
     TableEnumerator* tableEnum = getTableEnumerator(env, jTableEnumerator);
 
-    if(tableEnum->hasNext()) 
+    if(tableEnum->hasNext())
     {
         uint32_t size = 0;
         const void* buffer = 0;
@@ -479,7 +547,7 @@ JNIEXPORT jobject JNICALL Java_edu_stanford_ramcloud_JRamCloud_00024TableEnumera
 
         jbyteArray jKey = env->NewByteArray(object.getKeyLength());
         jbyteArray jValue = env->NewByteArray(object.getDataLength());
-        
+
         JByteArrayGetter key(env, jKey);
         JByteArrayGetter value(env, jValue);
 
@@ -487,7 +555,7 @@ JNIEXPORT jobject JNICALL Java_edu_stanford_ramcloud_JRamCloud_00024TableEnumera
         memcpy(value.pointer, object.getData(), object.getDataLength());
 
         version = object.getVersion();
-        
+
         jclass cls = env->FindClass(PACKAGE_PATH "JRamCloud$Object");
         check_null(cls, "FindClass failed");
         jmethodID methodId = env->GetMethodID(cls,
@@ -499,7 +567,7 @@ JNIEXPORT jobject JNICALL Java_edu_stanford_ramcloud_JRamCloud_00024TableEnumera
                               jTableEnumerator,
                               jKey,
                               jValue,
-                              static_cast<jlong>(version));        
-    } else 
+                              static_cast<jlong>(version));
+    } else
         return NULL;
 }

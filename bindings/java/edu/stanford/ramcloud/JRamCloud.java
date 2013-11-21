@@ -15,8 +15,6 @@
 
 package edu.stanford.ramcloud;
 
-import java.io.Serializable;
-
 /*
  * This class provides Java bindings for RAMCloud. Right now it is a rather
  * simple subset of what RamCloud.h defines.
@@ -30,10 +28,7 @@ import java.io.Serializable;
  *      http://www.ibm.com/developerworks/java/tutorials/j-jni/section4.html
  *      http://developer.android.com/training/articles/perf-jni.html
  */
-public class JRamCloud implements Serializable {
-    private static final long serialVersionUID = 7526472295622776147L;
-    public JRamCloud () {
-    }
+public class JRamCloud {
     static {
         System.loadLibrary("edu_stanford_ramcloud_JRamCloud");
     }
@@ -276,7 +271,7 @@ public class JRamCloud implements Serializable {
     public static void
     main(String argv[])
     {
-        JRamCloud ramcloud = new JRamCloud("fast+udp:host=127.0.0.1,port=12246");
+        JRamCloud ramcloud = new JRamCloud(argv[0]);
         long tableId = ramcloud.createTable("hi");
         System.out.println("created table, id = " + tableId);
         long tableId2 = ramcloud.getTableId("hi");
@@ -307,7 +302,8 @@ public class JRamCloud implements Serializable {
         long after = System.nanoTime();
         System.out.println("Avg read latency: " +
             ((double)(after - before) / 100000 / 1000) + " usec");
-      
+
+        // multiRead test
         long tableId4 = ramcloud.createTable("table4");
         ramcloud.write(tableId4, "object1-1", "value:1-1");
         ramcloud.write(tableId4, "object1-2", "value:1-2");
@@ -322,10 +318,10 @@ public class JRamCloud implements Serializable {
         mread[0] = new multiReadObject(tableId4, "object1-1".getBytes());
         mread[1] = new multiReadObject(tableId5, "object2-1".getBytes());
         JRamCloud.Object out[] = ramcloud.multiRead(mread);
-	for (int i = 0 ; i < 2 ; i++){
-        	System.out.println("multi read object: key = [" + out[i].getKey() + "], value = ["
-            		+ out[i].getValue() + "], version = " + out[i].version);
-	}
+        for (int i = 0 ; i < 2 ; i++){
+            System.out.println("multi read object: key = [" + out[i].getKey() + "], value = ["
+                    + out[i].getValue() + "], version = " + out[i].version);
+        }
         ramcloud.dropTable("table4");
         ramcloud.dropTable("table5");
         ramcloud.dropTable("table6");

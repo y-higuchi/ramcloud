@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,15 +14,17 @@
  */
 
 #include "Common.h"
-#include "CoordinatorService.h"
 #include "ShortMacros.h"
+#include "CoordinatorService.h"
+#include "MockExternalStorage.h"
 #include "OptionParser.h"
 #include "PingService.h"
+#include "PortAlarm.h"
 #include "ServerId.h"
 #include "ServiceManager.h"
 #include "TableManager.h"
 #include "TransportManager.h"
-#include "PortAlarm.h"
+#include "ZooStorage.h"
 
 /**
  * \file
@@ -39,7 +41,6 @@ main(int argc, char *argv[])
     string logCabinLocator("testing");
     Context context(true);
     CoordinatorServerList serverList(&context);
-    TableManager tableManager(&context);
     try {
         OptionsDescription coordinatorOptions("Coordinator");
         coordinatorOptions.add_options()
@@ -74,25 +75,35 @@ main(int argc, char *argv[])
         localLocator = context.transportManager->
                                 getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
-        LOG(NOTICE, "PortTimeOut=%d", optionParser.options.getPortTimeout());
 
         // Set PortTimeout and start portTimer
+        LOG(NOTICE, "PortTimeOut=%d", optionParser.options.getPortTimeout());
         context.portAlarmTimer->setPortTimeout(
                 optionParser.options.getPortTimeout());
 
+        string externalLocator =
+                optionParser.options.getExternalStorageLocator();
+        if (externalLocator.find("zk:") == 0) {
+            string zkInfo = externalLocator.substr(3);
+            context.externalStorage = new ZooStorage(zkInfo, context.dispatch);
+        } else {
+            // Operate without external storage (among other things, this
+            // means we won't do any recovery when we start up, and we won't
+            // save any information to allow recovery if we crash).
+            context.externalStorage = new MockExternalStorage(false);
+        }
+        context.externalStorage->becomeLeader("/coordinator", localLocator);
+
         CoordinatorService coordinatorService(&context,
-                                              deadServerTimeout,
-                                              logCabinLocator);
-        context.coordinatorService = &coordinatorService;
+                                              deadServerTimeout);
         context.serviceManager->addService(coordinatorService,
                                            WireFormat::COORDINATOR_SERVICE);
         PingService pingService(&context);
         context.serviceManager->addService(pingService,
                                            WireFormat::PING_SERVICE);
 
-        Dispatch& dispatch = *context.dispatch;
         while (true) {
-            dispatch.poll();
+            context.dispatch->poll();
         }
         return 0;
     } catch (const std::exception& e) {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -28,51 +28,45 @@
 
 namespace RAMCloud {
 
+/*
+ * Construct a CoordinatorService.
+ *
+ * \param context
+ *      Overall information about the RAMCloud server. A pointer to this
+ *      object will be stored at context->coordinatorService.
+ * \param deadServerTimeout
+ *      Servers are presumed dead if they cannot respond to a ping request
+ *      in this many milliseconds.
+ * \param startRecoveryManager
+ *      True means we should start the thread that manages crash recovery.
+ */
 CoordinatorService::CoordinatorService(Context* context,
                                        uint32_t deadServerTimeout,
-                                       string LogCabinLocator,
                                        bool startRecoveryManager)
     : context(context)
     , serverList(context->coordinatorServerList)
     , deadServerTimeout(deadServerTimeout)
-    , tableManager(context->tableManager)
+    , updateManager(context->externalStorage)
+    , tableManager(context, &updateManager)
     , runtimeOptions()
-    , recoveryManager(context, *tableManager, &runtimeOptions)
-    , coordinatorRecovery(*this)
-    , logCabinCluster()
-    , logCabinLog()
-    , logCabinHelper()
-    , expectedEntryId(LogCabin::Client::NO_ID)
+    , recoveryManager(context, tableManager, &runtimeOptions)
     , forceServerDownForTesting(false)
 {
-    if (strcmp(LogCabinLocator.c_str(), "testing") == 0) {
-        LOG(NOTICE, "Connecting to mock LogCabin cluster for testing.");
-        logCabinCluster.construct(LogCabin::Client::Cluster::FOR_TESTING);
-    } else {
-        LOG(NOTICE, "Connecting to LogCabin cluster at %s",
-                    LogCabinLocator.c_str());
-        logCabinCluster.construct(LogCabinLocator);
-    }
-    logCabinLog.construct(logCabinCluster->openLog("coordinator"));
-    logCabinHelper.construct(*logCabinLog);
-    LOG(NOTICE, "Connected to LogCabin cluster.");
-
-    if (logCabinLog.get()->getLastId() == LogCabin::Client::NO_ID)
-        expectedEntryId = 0;
-    else
-        expectedEntryId = logCabinLog.get()->getLastId();
-    LOG(DEBUG, "Expected EntryId is %lu", expectedEntryId);
-
     context->recoveryManager = &recoveryManager;
-    context->logCabinLog = logCabinLog.get();
-    context->logCabinHelper = logCabinHelper.get();
-    context->expectedEntryId = &expectedEntryId;
+    context->coordinatorService = this;
 
     if (startRecoveryManager)
         recoveryManager.start();
 
-    // Replay the entire log (if any) before we start servicing the RPCs.
-    coordinatorRecovery.replay();
+    // Recover state (and incomplete operations) from external storage.
+    uint64_t lastCompletedUpdate = updateManager.init();
+    serverList->recover(lastCompletedUpdate);
+    tableManager.recover(lastCompletedUpdate);
+
+    // Don't enable server list updates until recovery is finished (before
+    // this point the server list may not contain all information needed
+    // for updating).
+    serverList->startUpdater();
 }
 
 CoordinatorService::~CoordinatorService()
@@ -177,12 +171,7 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request* reqHdr,
                                  reqHdr->nameLength);
     uint32_t serverSpan = reqHdr->serverSpan;
 
-    try {
-        uint64_t tableId = tableManager->createTable(name, serverSpan);
-        respHdr->tableId = tableId;
-    } catch (TableManager::TableExists& e) {
-        respHdr->tableId = tableManager->getTableId(name);
-    }
+    respHdr->tableId = tableManager.createTable(name, serverSpan);
 }
 
 /**
@@ -196,7 +185,7 @@ CoordinatorService::dropTable(const WireFormat::DropTable::Request* reqHdr,
 {
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
                                  reqHdr->nameLength);
-    tableManager->dropTable(name);
+    tableManager.dropTable(name);
 }
 
 /**
@@ -215,7 +204,7 @@ CoordinatorService::splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
                                  reqHdr->nameLength);
     try {
-        tableManager->splitTablet(
+        tableManager.splitTablet(
                 name, reqHdr->splitKeyHash);
         LOG(NOTICE,
             "In table '%s' I split the tablet at key %lu",
@@ -269,7 +258,7 @@ CoordinatorService::getTableId(
                                  reqHdr->nameLength);
 
     try {
-        uint64_t tableId = tableManager->getTableId(name);
+        uint64_t tableId = tableManager.getTableId(name);
         respHdr->tableId = tableId;
     } catch (TableManager::NoSuchTable& e) {
         respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
@@ -293,14 +282,22 @@ CoordinatorService::enlistServer(
     const char* serviceLocator = getString(rpc->requestPayload, sizeof(*reqHdr),
                                            reqHdr->serviceLocatorLength);
 
-    LOG(NOTICE, "Starting enlistment for %s", serviceLocator);
-    ServerId newServerId = serverList->enlistServer(
-        replacesId, serviceMask, readSpeed, serviceLocator);
+    // If the new server is replacing an existing one, we must start
+    // crash recovery on the old server. Furthermore, we must initiate that
+    // right away, so that existing servers will be notified of the crash
+    // before finding out about the new server.
+    if (serverList->isUp(replacesId)) {
+        LOG(NOTICE, "enlisting server %s claims to replace server id "
+            "%s, which is still in the server list; taking its word "
+            "for it and assuming the old server has failed",
+            serviceLocator, replacesId.toString().c_str());
+        serverList->serverCrashed(replacesId);
+    }
+
+    ServerId newServerId = serverList->enlistServer(serviceMask, readSpeed,
+                                                    serviceLocator);
 
     respHdr->serverId = newServerId.getId();
-    rpc->sendReply();
-    LOG(NOTICE, "Replied to enlistment for %s with serverId %s",
-        serviceLocator, newServerId.toString().c_str());
 }
 
 /**
@@ -333,7 +330,7 @@ CoordinatorService::getTabletMap(
     Rpc* rpc)
 {
     ProtoBuf::Tablets tablets;
-    tableManager->serialize(serverList, &tablets);
+    tableManager.serialize(&tablets);
     respHdr->tabletMapLength = serializeToResponse(rpc->replyPayload,
                                                    &tablets);
 }
@@ -439,7 +436,7 @@ CoordinatorService::reassignTabletOwnership(
     }
 
     try {
-        tableManager->reassignTabletOwnership(
+        tableManager.reassignTabletOwnership(
                 newOwner, tableId, startKeyHash, endKeyHash,
                 reqHdr->ctimeSegmentId, reqHdr->ctimeSegmentOffset);
     } catch (const TableManager::NoSuchTablet& e) {

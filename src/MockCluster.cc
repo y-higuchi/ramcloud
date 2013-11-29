@@ -39,6 +39,7 @@ namespace RAMCloud {
 MockCluster::MockCluster(Context* context, string coordinatorLocator)
     : linkedContext(context)
     , coordinatorContext()
+    , externalStorage(true)
     , transport(&coordinatorContext)
     , coordinatorLocator(coordinatorLocator)
     , coordinator()
@@ -53,12 +54,12 @@ MockCluster::MockCluster(Context* context, string coordinatorLocator)
     linkedContext->coordinatorSession->setLocation(coordinatorLocator.c_str());
 
     new CoordinatorServerList(&coordinatorContext);
-    new TableManager(&coordinatorContext);
     coordinatorContext.transportManager->registerMock(&transport);
     coordinatorContext.coordinatorSession->setLocation(
             coordinatorLocator.c_str());
+    coordinatorContext.externalStorage = &externalStorage;
 
-    coordinator.construct(&coordinatorContext, 1000, "testing", false);
+    coordinator.construct(&coordinatorContext, 1000, false);
     transport.addService(*coordinator, coordinatorLocator,
                          WireFormat::COORDINATOR_SERVICE);
 }

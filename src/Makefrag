@@ -41,10 +41,13 @@ SHARED_SRCFILES := \
 		   src/CodeLocation.cc \
 		   src/Common.cc \
 		   src/Cycles.cc \
+		   src/DataBlock.cc \
 		   src/Dispatch.cc \
 		   src/Driver.cc \
+		   src/ZooStorage.cc \
 		   src/Enumeration.cc \
 		   src/EnumerationIterator.cc \
+		   src/ExternalStorage.cc \
 		   src/FailureDetector.cc \
 		   src/FailSession.cc \
 		   src/FastTransport.cc \
@@ -117,6 +120,7 @@ SHARED_SRCFILES := \
 		   src/WallTime.cc \
 		   src/WireFormat.cc \
 		   src/WorkerSession.cc \
+		   src/WorkerTimer.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
 		   $(OBJDIR)/Histogram.pb.cc \

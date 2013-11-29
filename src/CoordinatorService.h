@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,16 +16,13 @@
 #ifndef RAMCLOUD_COORDINATORSERVICE_H
 #define RAMCLOUD_COORDINATORSERVICE_H
 
-#include <Client/Client.h>
-
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 
 #include "Common.h"
 #include "ClientException.h"
 #include "CoordinatorServerList.h"
-#include "CoordinatorServiceRecovery.h"
-#include "LogCabinHelper.h"
+#include "CoordinatorUpdateManager.h"
 #include "MasterRecoveryManager.h"
 #include "RawMetrics.h"
 #include "Recovery.h"
@@ -43,7 +40,6 @@ class CoordinatorService : public Service {
   public:
     explicit CoordinatorService(Context* context,
                                 uint32_t deadServerTimeout,
-                                string LogCabinLocator = "testing",
                                 bool startRecoveryManager = true);
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
@@ -127,9 +123,15 @@ class CoordinatorService : public Service {
     uint32_t deadServerTimeout;
 
     /**
+     * Keeps track of incomplete operations, for use in recovery by
+     * our successor if we crash.
+     */
+    CoordinatorUpdateManager updateManager;
+
+    /**
      * Manages the tables and constituting tablets information on Coordinator.
      */
-    TableManager* tableManager;
+    TableManager tableManager;
 
   PRIVATE:
     /**
@@ -145,36 +147,6 @@ class CoordinatorService : public Service {
     MasterRecoveryManager recoveryManager;
 
     /**
-     * Handles recovery of a coordinator.
-     */
-    CoordinatorServiceRecovery coordinatorRecovery;
-
-    /**
-     * Handle to the cluster of LogCabin which provides reliable, consistent
-     * storage.
-     */
-    Tub<LogCabin::Client::Cluster> logCabinCluster;
-
-    /**
-     * Handle to the log interface provided by LogCabin.
-     */
-    Tub<LogCabin::Client::Log> logCabinLog;
-
-    /**
-     * Handle to a helper class that provides higher level abstractions
-     * to interact with LogCabin.
-     */
-    Tub<LogCabinHelper> logCabinHelper;
-
-    /**
-     * EntryId of the last entry appended to log by this instance of
-     * coordinator. This is used for safe appends, i.e., appends that are
-     * conditional on last entry being appended by this entry, that helps
-     * ensure leadership.
-     */
-    LogCabin::Client::EntryId expectedEntryId;
-
-    /**
      * Used for testing only. If true, the HINT_SERVER_CRASHED handler will
      * assume that the server has failed (rather than checking for itself).
      */
@@ -182,6 +154,7 @@ class CoordinatorService : public Service {
 
     friend class CoordinatorServiceRecovery;
     friend class CoordinatorServerList;
+    friend class MockCluster;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };

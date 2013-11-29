@@ -155,6 +155,28 @@ struct ResponseCommon {
                                   // succeeded; if not, it explains why.
 } __attribute__((packed));
 
+/**
+ * When the response status is STATUS_RETRY, the full response looks like
+ * this (it contains extra information for use by the requesting client).
+ */
+struct RetryResponse {
+    ResponseCommon common;
+    uint32_t minDelayMicros;      // Lower bound on client delay, in
+                                  // microseconds.
+    uint32_t maxDelayMicros;      // Upper bound on client delay, in
+                                  // microseconds. The client should choose
+                                  // a random number between minDelayMicros
+                                  // and maxDelayMicros, and wait that long
+                                  // before retrying the RPC.
+    uint32_t messageLength;       // Number of bytes in a message that
+                                  // describes the reason for the retry.
+                                  // 0 means there is no message.
+                                  // The message itself immediately follows
+                                  // this header, and it must include a
+                                  // terminating null character, which is
+                                  // included in messageLength.
+} __attribute__((packed));
+
 
 // For each RPC there is a structure below, which contains the following:
 //   * A field "opcode" defining the Opcode used in requests.
@@ -1151,6 +1173,9 @@ struct UpdateServerList {
     struct Request {
         RequestCommonWithId common;
 
+        // Immediately following this header are one or more groups,
+        // where each group consists of a Part object (defined below)
+        // followed by a serialized ProtoBuf::ServerList.
         struct Part {
             uint32_t serverListLength; // Number of bytes in the server list.
                                        // The bytes of the server list follow
@@ -1160,6 +1185,9 @@ struct UpdateServerList {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
+        uint64_t currentVersion;      // The server list version number of the
+                                      // RPC recipient, after processing this
+                                      // request.
     } __attribute__((packed));
 };
 

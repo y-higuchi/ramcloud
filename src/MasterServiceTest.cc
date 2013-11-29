@@ -70,6 +70,7 @@ class MasterServiceRefresher : public ObjectFinder::TabletMapFetcher {
 
 class MasterServiceTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     ServerList serverList;
     MockCluster cluster;
@@ -89,7 +90,8 @@ class MasterServiceTest : public ::testing::Test {
     // apparently template easily on that, we need to subclass this if we want
     // to provide a fixture with a different value.
     explicit MasterServiceTest(uint32_t segmentSize = 256 * 1024)
-        : context()
+        : logEnabler()
+        , context()
         , serverList(&context)
         , cluster(&context)
         , ramcloud()
@@ -1418,9 +1420,8 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     Log::Position master2HeadPositionAfter = Log::Position(
         master2Log->head->id,
         master2Log->head->getAppendedLength());
-    Lock lock(mutex);   // Used to trick TableManager internal calls.
     Log::Position ctimeCoord =
-        cluster.coordinator->tableManager->getTablet(lock, tbl, 0, -1).ctime;
+        cluster.coordinator->tableManager.getTablet(tbl, 0).ctime;
     EXPECT_GT(ctimeCoord, master2HeadPositionBefore);
     EXPECT_LT(ctimeCoord, master2HeadPositionAfter);
 }
@@ -1692,6 +1693,7 @@ TEST_F(MasterServiceFullSegmentSizeTest, write_maximumObjectSize) {
 
 class MasterRecoverTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     const uint32_t segmentSize;
@@ -1701,7 +1703,8 @@ class MasterRecoverTest : public ::testing::Test {
 
     public:
     MasterRecoverTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , segmentSize(1 << 16)  // Smaller than usual to make tests faster.
         , segmentFrames(30)     // Master's log uses one when constructed.

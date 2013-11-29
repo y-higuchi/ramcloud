@@ -38,7 +38,7 @@ endif
 
 COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
 	        -MD -m$(SSE) \
-	        $(DEBUGFLAGS)
+	        $(DEBUGFLAGS) -DBOOST_UNORDERED_DEPRECATED_PAIR_CONSTRUCT
 ifeq ($(COMPILER),gnu)
 COMFLAGS += -march=core2
 endif
@@ -46,7 +46,7 @@ ifeq ($(VALGRIND),yes)
 COMFLAGS += -DVALGRIND
 endif
 
-COMWARNS := -Wall -Wformat=2 -Wextra \
+COMWARNS := -Wall -Wformat=2 -Wextra -Wno-array-bounds -Wno-uninitialized\
             -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute
 CWARNS   := $(COMWARNS) -Wmissing-prototypes -Wmissing-declarations -Wshadow \
 		-Wbad-function-cast

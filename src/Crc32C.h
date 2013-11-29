@@ -198,7 +198,7 @@ class Crc32C {
      *      A reference to this instance for chaining calls.
      */
     Crc32C&
-    update(const void* buffer, uint32_t bytes)
+    update(const void* buffer, uint64_t bytes)
     {
         result = useHardware ? intelCrc32C(result, buffer, bytes)
                              : softwareCrc32C(result, buffer, bytes);

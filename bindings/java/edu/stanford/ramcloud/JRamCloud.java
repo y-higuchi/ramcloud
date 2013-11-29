@@ -74,17 +74,17 @@ public class JRamCloud {
             this.givenVersion = version;
         }	
     }
-    
+
     public static class multiReadObject {
         long tableId;
         byte[] key;
-        
+
         public multiReadObject(long _tableId, byte[] _key){
             tableId = _tableId;
             key = _key;
         }
     }
-    
+
     /**
      * This class is returned by Read operations. It encapsulates the entire
      * object, including the key, value, and version.
@@ -121,13 +121,13 @@ public class JRamCloud {
     public class TableEnumerator {
         private long tableEnumeratorObjectPointer = 0;
         private long ramCloudObjectPointer = 0;
-        
+
         public TableEnumerator(long tableId)
         {
             ramCloudObjectPointer = ramcloudObjectPointer;
             tableEnumeratorObjectPointer = init(tableId);
         }
-        
+
         private native long init(long tableId);
         public native boolean hasNext();
         public native Object next();
@@ -188,7 +188,7 @@ public class JRamCloud {
     {
         return read(tableId, key.getBytes(), rules);
     }
-    
+
     /**
      * Convenience remove() wrapper that take a String key argument.
      */
@@ -244,7 +244,7 @@ public class JRamCloud {
     {
         return write(tableId, key.getBytes(), value, rules);
     }
-    
+
     private static native long connect(String coordinatorLocator);
     private static native void disconnect(long ramcloudObjectPointer);
 
@@ -334,7 +334,7 @@ public class JRamCloud {
         }
 
         ramcloud.write(tableId, "thisIsTheKey", "thisIsTheValue");
-        
+
         long before = System.nanoTime();
         for (int i = 0; i < 100000; i++) {
             JRamCloud.Object unused = ramcloud.read(tableId, "thisIsTheKey");

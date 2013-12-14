@@ -41,11 +41,38 @@ public class JRamCloud {
      * See src/RejectRules.h.
      */
     public class RejectRules {
-        long givenVersion = -1;
-        boolean doesntExist = false;
-        boolean exists = false;
-        boolean versionLeGiven = false;
-        boolean versionNeGiven = false;
+	private long givenVersion;
+        private boolean doesntExist;
+        private boolean exists;
+        private boolean versionLeGiven;
+        private boolean versionNeGiven;
+
+        public RejectRules() {
+            this.givenVersion = -1;
+            this.exists = this.doesntExist = this.versionLeGiven = this.versionNeGiven = false;
+        }
+
+        public void setLeVersion(long version) {
+            setVersion(version);
+            this.versionLeGiven = true;
+        }
+
+        public void setExists() {
+            this.exists = true;
+        }
+
+        public void setDoesntExists() {
+            this.doesntExist = true;
+        }
+
+        public void setNeVersion(long version) {
+            setVersion(version);
+            this.versionNeGiven = true;
+        }
+
+        private void setVersion(long version) {
+            this.givenVersion = version;
+        }	
     }
     
     public static class multiReadObject {
@@ -232,6 +259,7 @@ public class JRamCloud {
     public native long remove(long tableId, byte[] key, RejectRules rules);
     public native long write(long tableId, byte[] key, byte[] value);
     public native long write(long tableId, byte[] key, byte[] value, RejectRules rules);
+    public native long writeRule(long tableId, byte[] key, byte[] value, RejectRules rules);
 
     /*
      * The following exceptions may be thrown by the JNI functions:
@@ -261,6 +289,18 @@ public class JRamCloud {
     public class WrongVersionException extends Exception {
         public WrongVersionException(String message)
         {
+            super(message);
+        }
+    }
+    
+    public class InvalidObjectException extends Exception {
+        public InvalidObjectException(String message) {
+            super(message);
+        }
+    }
+    
+    public class RejectRulesException extends Exception {
+        public RejectRulesException(String message) {
             super(message);
         }
     }

@@ -36,7 +36,7 @@ DEBUGFLAGS := -DNDEBUG -Wno-unused-variable
 endif
 
 COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
-	        -MD -m$(SSE) \
+                -MD -m$(SSE) -Wno-error=conversion -Wno-error=unused-but-set-variable -Wno-array-bounds -Wno-error=unused-result -Wno-unused-result\
 	        $(DEBUGFLAGS) -DBOOST_UNORDERED_DEPRECATED_PAIR_CONSTRUCT
 ifeq ($(COMPILER),gnu)
 COMFLAGS += -march=core2

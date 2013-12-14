@@ -52,7 +52,8 @@ namespace po = boost::program_options;
 using namespace RAMCloud;
 
 // Shared state for client library.
-Context context(true);
+//Context context(true);
+Context* context = NULL;//(true);
 
 // Used to invoke RAMCloud operations.
 static RamCloud* cluster;
@@ -1435,7 +1436,7 @@ readAllToAll()
                 uint64_t startCycles = Cycles::rdtsc();
                 ReadRpc read(cluster, tableId, key, keyLength, &result);
                 while (!read.isReady()) {
-                    context.dispatch->poll();
+                    context->dispatch->poll();
                     double secsWaiting =
                         Cycles::toSeconds(Cycles::rdtsc() - startCycles);
                     if (secsWaiting > 1.0) {
@@ -1472,7 +1473,7 @@ readAllToAll()
         uint64_t startCycles = Cycles::rdtsc();
         ReadRpc read(cluster, tableId, key, keyLength, &result);
         while (!read.isReady()) {
-            context.dispatch->poll();
+            context->dispatch->poll();
             if (Cycles::toSeconds(Cycles::rdtsc() - startCycles) > 1.0) {
                 RAMCLOUD_LOG(ERROR,
                             "Master client %d couldn't read from tableId %lu",
@@ -1984,6 +1985,8 @@ int
 main(int argc, char *argv[])
 try
 {
+    Context ctx(true);
+    context = &ctx;
     // Parse command-line options.
     vector<string> testNames;
     string coordinatorLocator, logFile;
@@ -2046,7 +2049,7 @@ try
         exit(1);
     }
 
-    RamCloud r(&context, coordinatorLocator.c_str());
+    RamCloud r(context, coordinatorLocator.c_str());
     cluster = &r;
     cluster->createTable("data");
     dataTable = cluster->getTableId("data");

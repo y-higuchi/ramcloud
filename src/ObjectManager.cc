@@ -165,6 +165,7 @@ ObjectManager::writeObject(Key& key,
         }
     }
 
+    objectMap.prefetchBucket(key);
     HashTableBucketLock lock(*this, key);
 
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
@@ -179,7 +180,10 @@ ObjectManager::writeObject(Key& key,
     Log::Reference currentReference;
     uint64_t currentVersion = VERSION_NONEXISTENT;
 
-    if (lookup(lock, key, currentType, currentBuffer, 0, &currentReference)) {
+    HashTable::Candidates currentHashTableEntry;
+
+    if (lookup(lock, key, currentType, currentBuffer, 0,
+               &currentReference, &currentHashTableEntry)) {
         if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
             removeIfTombstone(currentReference.toInteger(), this);
         } else {
@@ -242,9 +246,13 @@ ObjectManager::writeObject(Key& key,
         return STATUS_RETRY;
     }
 
-    replace(lock, key, appends[0].reference);
-    if (tombstone)
+    if (tombstone) {
+        currentHashTableEntry.setReference(appends[0].reference.toInteger());
         log.free(currentReference);
+    } else {
+        objectMap.insert(key, appends[0].reference.toInteger());
+    }
+
     if (outVersion != NULL)
         *outVersion = newObject.getVersion();
 
@@ -300,6 +308,7 @@ ObjectManager::readObject(Key& key,
                           RejectRules* rejectRules,
                           uint64_t* outVersion)
 {
+    objectMap.prefetchBucket(key);
     HashTableBucketLock lock(*this, key);
 
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
@@ -455,7 +464,8 @@ ObjectManager::prefetchHashTableBucket(SegmentIterator* it)
     } else if (it->getType() == LOG_ENTRY_TYPE_OBJTOMB) {
         const ObjectTombstone::SerializedForm* tomb =
             it->getContiguous<ObjectTombstone::SerializedForm>(NULL, 0);
-        Key key(tomb->tableId, tomb->key, tomb->keyLength);
+        Key key(tomb->tableId, tomb->key,
+            downCast<uint16_t>(it->getLength() - sizeof32(*tomb)));
         objectMap.prefetchBucket(key);
     }
 }
@@ -948,7 +958,8 @@ ObjectManager::relocateObject(Buffer& oldBuffer,
     // reference, so there's no need for a key comparison, and we
     // can easily avoid looping over the bucket twice this way for
     // live objects.
-    HashTable::Candidates candidates = objectMap.lookup(key);
+    HashTable::Candidates candidates;
+    objectMap.lookup(key, candidates);
     while (!candidates.isDone()) {
         if (candidates.getReference() != oldReference.toInteger()) {
             candidates.next();
@@ -959,6 +970,7 @@ ObjectManager::relocateObject(Buffer& oldBuffer,
         // cleaner will allocate more memory and retry.
         if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer))
             return;
+
         candidates.setReference(relocator.getNewReference().toInteger());
         return;
     }
@@ -1071,6 +1083,13 @@ ObjectManager::getTombstoneTimestamp(Buffer& buffer)
  * \param[out] outReference
  *      The log reference to the entry, if found, is stored in this optional
  *      parameter.
+ * \param[out] outCandidates
+ *      If this option parameter is specified and the key being looked up
+ *      is found, the HashTable::Candidates object provided will be set to
+ *      point to that key's entry in the hash table. This is useful when an
+ *      object is being updated. The caller may update the hash table's
+ *      reference directly, rather than having to first perform another
+ *      lookup after the new object is written to the log. 
  * \return
  *      True if an entry is found matching the given key, otherwise false.
  */
@@ -1080,9 +1099,11 @@ ObjectManager::lookup(HashTableBucketLock& lock,
                       LogEntryType& outType,
                       Buffer& buffer,
                       uint64_t* outVersion,
-                      Log::Reference* outReference)
+                      Log::Reference* outReference,
+                      HashTable::Candidates* outCandidates)
 {
-    HashTable::Candidates candidates = objectMap.lookup(key);
+    HashTable::Candidates candidates;
+    objectMap.lookup(key, candidates);
     while (!candidates.isDone()) {
         Buffer candidateBuffer;
         Log::Reference candidateRef(candidates.getReference());
@@ -1103,6 +1124,8 @@ ObjectManager::lookup(HashTableBucketLock& lock,
             }
             if (outReference != NULL)
                 *outReference = candidateRef;
+            if (outCandidates != NULL)
+                *outCandidates = candidates;
             return true;
         }
 
@@ -1129,7 +1152,8 @@ ObjectManager::lookup(HashTableBucketLock& lock,
 bool
 ObjectManager::remove(HashTableBucketLock& lock, Key& key)
 {
-    HashTable::Candidates candidates = objectMap.lookup(key);
+    HashTable::Candidates candidates;
+    objectMap.lookup(key, candidates);
     while (!candidates.isDone()) {
         Buffer buffer;
         Log::Reference candidateRef(candidates.getReference());
@@ -1167,7 +1191,8 @@ ObjectManager::replace(HashTableBucketLock& lock,
                        Key& key,
                        Log::Reference reference)
 {
-    HashTable::Candidates candidates = objectMap.lookup(key);
+    HashTable::Candidates candidates;
+    objectMap.lookup(key, candidates);
     while (!candidates.isDone()) {
         Buffer buffer;
         Log::Reference candidateRef(candidates.getReference());
@@ -1305,6 +1330,58 @@ ObjectManager::RemoveTombstonePoller::poll()
         currentBucket = 0;
         passes++;
     }
+}
+
+/**
+ * Produce a human-readable description of the contents of a segment.
+ * Intended primarily for use in unit tests.
+ *
+ * \param segment
+ *       Segment whose contents should be dumped.
+ *
+ * \result
+ *       A string describing the contents of the segment
+ */
+string
+ObjectManager::dumpSegment(Segment* segment)
+{
+    const char* separator = "";
+    string result;
+    SegmentIterator it(*segment);
+    while (!it.isDone()) {
+        LogEntryType type = it.getType();
+        if (type == LOG_ENTRY_TYPE_OBJ) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            Object object(buffer);
+            result += format("%sobject at offset %u, length %u with tableId "
+                    "%lu, key '%.*s'",
+                    separator, it.getOffset(), it.getLength(),
+                    object.getTableId(), object.getKeyLength(),
+                    static_cast<const char*>(object.getKey()));
+        } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            ObjectTombstone tombstone(buffer);
+            result += format("%stombstone at offset %u, length %u with tableId "
+                    "%lu, key '%.*s'",
+                    separator, it.getOffset(), it.getLength(),
+                    tombstone.getTableId(),
+                    tombstone.getKeyLength(),
+                    static_cast<const char*>(tombstone.getKey()));
+        } else if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            ObjectSafeVersion safeVersion(buffer);
+            result += format("%ssafeVersion at offset %u, length %u with "
+                    "version %lu",
+                    separator, it.getOffset(), it.getLength(),
+                    safeVersion.getSafeVersion());
+        }
+        it.next();
+        separator = " | ";
+    }
+    return result;
 }
 
 } //enamespace RAMCloud

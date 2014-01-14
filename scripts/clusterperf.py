@@ -262,14 +262,16 @@ def readLoaded(name, options, cluster_args, client_args):
     print(get_client_log(), end='')
 
 def readRandom(name, options, cluster_args, client_args):
+    cluster_args['backups_per_server'] = 0
+    cluster_args['replicas'] = 0
     cluster_args['timeout'] = 60
     if 'num_clients' not in cluster_args:
-        cluster_args['num_clients'] = 50
+        cluster_args['num_clients'] = 16 
     if options.num_servers == None:
-        cluster_args['num_servers'] = 10
+        cluster_args['num_servers'] = 1
     client_args['--numTables'] = cluster_args['num_servers'];
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 4', **cluster_args)
     print(get_client_log(), end='')
 
 #-------------------------------------------------------------------
@@ -322,7 +324,7 @@ if __name__ == '__main__':
     parser.add_option('--debug', action='store_true', default=False,
             help='Pause after starting servers but before running '
                  'clients to enable debugging setup')
-    parser.add_option('-d', '--logDir', default=''.join([scripts_path, '/logs']), metavar='DIR',
+    parser.add_option('-d', '--logDir', default='logs', metavar='DIR',
             dest='log_dir',
             help='Top level directory for log files; the files for '
                  'each invocation will go in a subdirectory.')

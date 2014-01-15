@@ -17,6 +17,7 @@
 #define RAMCLOUD_WORKERTIMER_H
 
 #include <thread>
+#include <condition_variable>
 #include "BoostIntrusive.h"
 #include "Dispatch.h"
 

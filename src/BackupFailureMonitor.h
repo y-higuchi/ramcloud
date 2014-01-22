@@ -17,6 +17,7 @@
 #define RAMCLOUD_BACKUPFAILUREMONITOR_H
 
 #include <thread>
+#include <condition_variable>
 
 #include "ServerTracker.h"
 #include "Tub.h"

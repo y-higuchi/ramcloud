@@ -45,8 +45,8 @@ class RamCloud {
   public:
     uint64_t createTable(const char* name, uint32_t serverSpan = 1);
     void dropTable(const char* name);
-    uint64_t enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
-         Buffer& state, Buffer& objects);
+    uint64_t enumerateTable(uint64_t tableId, bool keysOnly,
+         uint64_t tabletFirstHash, Buffer& state, Buffer& objects);
     void getLogMetrics(const char* serviceLocator,
                        ProtoBuf::LogMetrics& logMetrics);
     ServerMetrics getMetrics(uint64_t tableId, const void* key,
@@ -93,8 +93,10 @@ class RamCloud {
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const char* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL, bool async = false);
-    explicit RamCloud(const char* serviceLocator);
-    RamCloud(Context* context, const char* serviceLocator);
+    explicit RamCloud(const char* serviceLocator,
+            const char* clusterName = "main");
+    RamCloud(Context* context, const char* serviceLocator,
+            const char* clusterName = "main");
     virtual ~RamCloud();
 
   PRIVATE:
@@ -166,7 +168,7 @@ class DropTableRpc : public CoordinatorRpcWrapper {
  */
 class EnumerateTableRpc : public ObjectRpcWrapper {
   public:
-    EnumerateTableRpc(RamCloud* ramcloud, uint64_t tableId,
+    EnumerateTableRpc(RamCloud* ramcloud, uint64_t tableId, bool keysOnly,
             uint64_t tabletFirstHash, Buffer& iter, Buffer& objects);
     ~EnumerateTableRpc() {}
     uint64_t wait(Buffer& nextIter);

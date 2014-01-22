@@ -106,10 +106,9 @@ ServerList::operator[](uint32_t index)
  * entries in the updates themselves.
  *
  * The coordinator must (and should already) ensure:
- * 1) Updates must not be sent to this server out-of-order. If the
- *    coordinator cannot confirm that an update has been applied it has no
- *    other option than to retry the update until acknowledgement.
- * 2) For enlisting server that "replace" an old server in the cluster
+ * 1) Updates should be sent to this server in order. Any out-of-order
+ *    updates will be discarded.
+ * 2) For an enlisting server that "replaces" an old server in the cluster
  *    (that is, a server re-enlisting with backup data written by a former
  *    cluster member process) the order the CRASHED/REMOVE event for the
  *    replaced server versus the UP event can affect correctness. Without
@@ -153,6 +152,7 @@ ServerList::operator[](uint32_t index)
 uint64_t
 ServerList::applyServerList(const ProtoBuf::ServerList& list)
 {
+    Lock lock(mutex);
     if (list.type() == ProtoBuf::ServerList::FULL_LIST) {
         // Ignore a full list unless it is the very first update we have
         // received (i.e. version == 0).
@@ -183,22 +183,35 @@ ServerList::applyServerList(const ProtoBuf::ServerList& list)
             serverList.resize(index + 1);
         auto& entry = serverList[index];
         if (status == ServerStatus::UP) {
+            LOG(NOTICE, "Server %s is up (server list version %lu)",
+                    ServerId{server.server_id()}.toString().c_str(),
+                    list.version_number());
             entry.construct(ServerDetails(server));
             foreach (ServerTrackerInterface* tracker, trackers)
                 tracker->enqueueChange(*entry, ServerChangeEvent::SERVER_ADDED);
         } else if (status == ServerStatus::CRASHED) {
+            LOG(NOTICE, "Server %s is crashed (server list version %lu)",
+                    ServerId{server.server_id()}.toString().c_str(),
+                    list.version_number());
             entry.construct(ServerDetails(server));
             foreach (ServerTrackerInterface* tracker, trackers) {
                 tracker->enqueueChange(*entry,
                                        ServerChangeEvent::SERVER_CRASHED);
             }
         } else if (status == ServerStatus::REMOVE) {
-            entry->status = ServerStatus::REMOVE;
-            foreach (ServerTrackerInterface* tracker, trackers) {
-                tracker->enqueueChange(*entry,
-                                       ServerChangeEvent::SERVER_REMOVED);
+            LOG(NOTICE, "Server %s is removed (server list version %lu)",
+                    ServerId{server.server_id()}.toString().c_str(),
+                    list.version_number());
+            // If we don't already have an entry for this server, no
+            // need to make one.
+            if (entry) {
+                entry->status = ServerStatus::REMOVE;
+                foreach (ServerTrackerInterface* tracker, trackers) {
+                    tracker->enqueueChange(*entry,
+                                           ServerChangeEvent::SERVER_REMOVED);
+                }
+                entry.destroy();
             }
-            entry.destroy();
         } else {
             DIE("unknown ServerStatus %d", server.status());
         }

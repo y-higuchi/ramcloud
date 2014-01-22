@@ -60,7 +60,6 @@ static_assert(INVALID_SERVICE < (sizeof(SerializedServiceMask) * 8),
  * RAMCloud service implements a subset of these operations.  If you
  * change this table you must also reflect the changes in the following
  * locations:
- * - The definition of rpc in scripts/rawmetrics.py.
  * - The method opcodeSymbol in WireFormat.cc.
  * - WireFormatTest.cc's out-of-range test, if ILLEGAL_RPC_TYPE was changed.
  */
@@ -95,7 +94,6 @@ enum Opcode {
     BACKUP_STARTPARTITION     = 36,
     DROP_TABLET_OWNERSHIP     = 39,
     TAKE_TABLET_OWNERSHIP     = 40,
-    BACKUP_ASSIGN_GROUP       = 41,
     GET_HEAD_OF_LOG           = 42,
     INCREMENT                 = 43,
     PREP_FOR_MIGRATION        = 44,
@@ -111,7 +109,8 @@ enum Opcode {
     VERIFY_MEMBERSHIP         = 55,
     GET_RUNTIME_OPTION        = 56,
     SERVER_CONTROL            = 57,
-    ILLEGAL_RPC_TYPE          = 58,  // 1 + the highest legitimate Opcode
+    GET_SERVER_ID             = 58,
+    ILLEGAL_RPC_TYPE          = 59,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -195,23 +194,7 @@ struct RetryResponse {
 // All structs are packed so that they have a standard byte representation.
 // All fields are little endian.
 
-// The RPCs below are in alphabetical order.
-
-struct BackupAssignGroup {
-    static const Opcode opcode = BACKUP_ASSIGN_GROUP;
-    static const ServiceType service = BACKUP_SERVICE;
-    struct Request {
-        RequestCommonWithId common;
-        uint64_t replicationId; ///< The new replication group Id assigned to
-                                ///< the backup.
-        uint32_t numReplicas;   ///< Following this field, we append a list of
-                                ///< uint64_t ServerId's, which represent the
-                                ///< servers in the replication group.
-    } __attribute__((packed));
-    struct Response {
-        ResponseCommon common;
-    } __attribute__((packed));
-};
+// The RPCs below are in alphabetical order
 
 struct BackupFree {
     static const Opcode opcode = BACKUP_FREE;
@@ -312,16 +295,14 @@ struct BackupStartReadingData {
                                        ///< inconsistent. If it might've been
                                        ///< this digest will be discarded
                                        ///< by the coordinator for safety.
-        uint32_t tabletMetricsLen;     ///< Byte length of TabletMetrics that
-                                       ///< go after the LogDigest
+        uint32_t tableStatsBytes;      ///< Byte length of TableStats::Digest
+                                       ///< that go after the LogDigest
         // An array of segmentIdCount replicas follows.
         // Each entry is a Replica (see below).
         //
         // If logDigestBytes != 0, then a serialised LogDigest follows
         // immediately after the replica list.
-
-        // TODO(syang0) TabletMetrics follows. The exact
-        // format has not been determined yet.
+        // If tableStatsBytes != 0, then a TableStats::Digest follows.
     } __attribute__((packed));
     /// Used in the Response to report which replicas the backup has.
     struct Replica {
@@ -508,6 +489,12 @@ struct Enumerate {
     struct Request {
         RequestCommon common;
         uint64_t tableId;
+        bool keysOnly;              // False means that full objects are
+                                    // returned, containing both keys and data.
+                                    // True means that the returned objects have
+                                    // been truncated so that the object data
+                                    // (normally the last field of the object)
+                                    // is omitted.
         uint64_t tabletFirstHash;
         uint32_t iteratorBytes;     // Size of iterator in bytes. The
                                     // actual iterator follows
@@ -618,6 +605,19 @@ struct GetServerConfig {
         uint32_t serverConfigLength;   // Number of bytes in the server config
                                        // protocol buffer immediately follow-
                                        // ing this header.
+    } __attribute__((packed));
+};
+
+struct GetServerId {
+    static const Opcode opcode = GET_SERVER_ID;
+    static const ServiceType service = PING_SERVICE;
+    struct Request {
+        RequestCommon common;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint64_t serverId;             // ServerId of the server that
+                                       // processed the request.
     } __attribute__((packed));
 };
 

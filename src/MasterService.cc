@@ -606,7 +606,7 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
             reqOffset, currentReq->valueLength);
         reqOffset += currentReq->valueLength;
 
-        if (stringKey == NULL || value == NULL) {
+        if (stringKey == NULL) {
             respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
             break;
         }

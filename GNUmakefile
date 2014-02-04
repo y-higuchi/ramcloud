@@ -37,7 +37,7 @@ endif
 
 COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
 	        -MD -m$(SSE) \
-	        $(DEBUGFLAGS) -DBOOST_UNORDERED_DEPRECATED_PAIR_CONSTRUCT
+	        $(DEBUGFLAGS) -DBOOST_UNORDERED_DEPRECATED_PAIR_CONSTRUCT -Wno-error=unused-result
 ifeq ($(COMPILER),gnu)
 COMFLAGS += -march=core2
 endif

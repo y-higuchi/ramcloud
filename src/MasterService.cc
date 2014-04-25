@@ -537,31 +537,44 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
     Status *status = &respHdr->common.status;
 
     ObjectBuffer value;
+    uint64_t version;
+    int64_t newValue;
     RejectRules rejectRules = reqHdr->rejectRules;
-    *status = objectManager.readObject(key, &value, &rejectRules, NULL);
-    if (*status != STATUS_OK)
-        return;
+    RejectRules updateRejectRules;
+    memset(&updateRejectRules, 0, sizeof(updateRejectRules));
 
-    uint32_t dataLen;
-    const int64_t oldValue = *value.get<int64_t>(&dataLen);
+    do {
+        value.reset();
+        *status = objectManager.readObject(key, &value, &rejectRules, &version);
+        if (*status != STATUS_OK)
+            return;
 
-    if (dataLen != sizeof(int64_t)) {
-        *status = STATUS_INVALID_OBJECT;
-        return;
-    }
+        uint32_t dataLen;
+        const int64_t oldValue = *value.get<int64_t>(&dataLen);
 
-    int64_t newValue = oldValue + reqHdr->incrementValue;
+        if (dataLen != sizeof(int64_t)) {
+            *status = STATUS_INVALID_OBJECT;
+            return;
+        }
 
-    // Write the new value back
-    Buffer newValueBuffer;
+        newValue = oldValue + reqHdr->incrementValue;
 
-    // create object to populate newValueBuffer.
-    Object::appendKeysAndValueToBuffer(key, &newValue, sizeof(int64_t),
-                                       newValueBuffer);
+        // Write the new value back
+        Buffer newValueBuffer;
 
-    Object newObject(reqHdr->tableId, 0, 0, newValueBuffer);
-    *status = objectManager.writeObject(newObject, &rejectRules,
-                                         &respHdr->version);
+        // create object to populate newValueBuffer.
+        Object::appendKeysAndValueToBuffer(key, &newValue, sizeof(int64_t),
+                                           newValueBuffer);
+
+        // reject rule to check atomic update
+        updateRejectRules.givenVersion = version;
+        updateRejectRules.versionNeGiven = true;
+
+        Object newObject(reqHdr->tableId, 0, 0, newValueBuffer);
+        *status = objectManager.writeObject(newObject, &updateRejectRules,
+                                             &respHdr->version);
+    } while (*status == STATUS_WRONG_VERSION);
+
     if (*status != STATUS_OK)
         return;
     objectManager.syncChanges();
